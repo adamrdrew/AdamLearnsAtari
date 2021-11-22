@@ -1,4 +1,8 @@
-; A simple VCS program template
+; A simple VCS program template by Adam Drew
+; The goal here was to take everything I learned about VCS timing and build a 
+; template that has all the important stuff done already. This template gives
+; you clearly demarcated and cycle counted VSync, VBlank, HBlank, Scanline, and OverScan
+; Building this template helped me learn the timing, and it gives me a good platform to start from
 
 	processor 6502
 	include vcs.h

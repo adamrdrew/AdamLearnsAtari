@@ -18,4 +18,5 @@ The internet is full of weird crusty Atari 2600 stuff. It's lurking like mold an
 * [6502 Assembly Reference](https://sites.google.com/site/6502asembly/)
 * [Making Games for the Atari 2600](https://www.amazon.com/Making-Games-Atari-2600-Steven-ebook/dp/B01N4DSRIZ/)
 * [The Atari 2600 VCS: The Ultimate Talk](https://www.youtube.com/watch?v=qvpwf50a48E&t=2464s&ab_channel=28c3)
-
+* [Docs and Tutorials on Atari Age](https://atariage.com/forums/topic/320754-docs-tutorials-and-tools-for-atari-2600-programming/)
+* [Arbitrary Sprite Placement](https://bumbershootsoft.wordpress.com/2018/08/30/an-arbitrary-sprite-positioning-routine-for-the-atari-2600/)

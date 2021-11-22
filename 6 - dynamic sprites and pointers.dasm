@@ -6,13 +6,36 @@
 ;		and a pointer that lets us read from whatever sprite is currently selected
 ;	2. We will need to refactor our scanline counter. In order to implement pointers we're going to need to use some op codes that
 ;		require use of the Y register, which we've blocked off as the scanline counter. Lets move that into memory
+;
+; My reference for this is "Making Games for the Atari 2600" Hugg, ch 14 "Indirect Adressing". I knew I needed pointers but had no idea
+; how they'd be implemented. The book provides the same sort of use case and code as I have here. HOWEVER, the example provided in that
+; book doesn't work in DASM. They have a whole different compiler they use on their 8bitworkshop.com website where the code lives. 
+; So, it took a lot of trial and error to land on the right way to do it in DASM!
+;
+; The key parts are:
+;	1. Create the 16 bit pointer in zero page. Lines 28 & 29
+;	2. Set the pointer to the address of one of the sprite tables. See line 89 and SET_POINTER macro
+;	3. Switch our sprite line buffer load code to use inderct addressesing. See line 207
+;	4. Refactored so that scanline counting happens in ScanlineCounter and Y is freed up for doing register work, such as like 207
 
 	processor 6502
 	include vcs.h
 	include macro.h
 	org $F000
 
+;This took a long time to figure out. None of the resources I consulted explained this properly.
+;We need to create the pointer, but it needs to be in the zero page in order to work with lda indirect with y
+;With DASM that means defining its address and then its length like so
+;The book uses a different compiler and it handles it differently.
+PlayerSpritePointer	= $99	
+	.word;
+
+;The number of scanlines on the visible portion of the screen
 ScanlineCount = $80
+;The current scanline we're on
+ScanlineCounter = $92
+
+
 VBlankTimer = $81
 OverscanTimer = $82
 
@@ -28,7 +51,6 @@ HorizMotionLeft = $89
 HorizMotionRight = $90
 
 PlayerSpriteBuffer = $91
-ScanlineCounter = $92
 
 Start
 	CLEAN_START
@@ -49,9 +71,9 @@ Start
 	lda #0
 	sta SpriteSliceToDraw
 
-	lda #%00100000
-	sta InputUp
 	lda #%00010000
+	sta InputUp
+	lda #%00100000
 	sta InputDown
 	lda #%01000000
 	sta InputLeft
@@ -63,10 +85,17 @@ Start
 	lda #$F0
 	sta HorizMotionRight
 
-	lda #<SpriteFaceRight
-	sta PlayerSpritePointer
-	lda #>SpriteFaceRight
-	sta PlayerSpritePointer+1
+
+
+	;SET_POINTER is a nice macro provided by DASM, it isn't 6502 asm
+	SET_POINTER PlayerSpritePointer, SpriteFaceRight
+	;This is what it is doing under the hood
+	;Mem addresses are 16bit on 6502, so we need to load the LSB and MSB of the address we want to point to into the pointer
+	;SET_POINTER macro link: https://github.com/munsie/dasm/blob/45fa6482594af347152a97d684fd01bc0060bf1a/machines/atari2600/macro.h#L118
+	;lda #<SpriteFaceRight
+	;sta PlayerSpritePointer
+	;lda #>SpriteFaceRight
+	;sta PlayerSpritePointer+1
 
 VSync
 	sta WSYNC
@@ -93,28 +122,32 @@ VBlankLogic
 	lda #0
 	sta SpriteSliceToDraw
 
+CheckMoveUp
 	lda InputUp
 	bit SWCHA
 	bne CheckMoveDown
-	dec PlayerSpriteY
+	inc PlayerSpriteY
+	SET_POINTER PlayerSpritePointer, SpriteFaceUp
 
 CheckMoveDown
 	lda InputDown
 	bit SWCHA
 	bne CheckMoveLeft
-	inc PlayerSpriteY
+	dec PlayerSpriteY
+	SET_POINTER PlayerSpritePointer, SpriteFaceDown
+
 
 CheckMoveLeft
 	;We'll use register X for our horizontal movement speed
 	;Default horizontal speed is 0
 	ldx #0
-
 	lda InputLeft
 	bit SWCHA
 	bne CheckMoveRight
 	ldx HorizMotionLeft
 	lda #$0B
 	sta REFP0
+	SET_POINTER PlayerSpritePointer, SpriteFaceRight
 
 CheckMoveRight
 	lda InputRight
@@ -123,6 +156,7 @@ CheckMoveRight
 	ldx HorizMotionRight
 	lda #0
 	sta REFP0
+	SET_POINTER PlayerSpritePointer, SpriteFaceRight
 
 SetHorizontalMovement
 	stx HMP0	
@@ -166,16 +200,16 @@ CheckPlayerOnScanline
 
 BufferPlayerSprite
 	;Load the sprite line count
-	ldx SpriteSliceToDraw
-	cpx #0
+	ldy SpriteSliceToDraw
+	cpy #0
 	;If the line count is 0 there's nothing to draw so skip drawing
 	beq SkipPlayerSprite
 	;Load the sprite line and buffer it 
-	lda SpriteFaceRight-1,X
+	lda (PlayerSpritePointer),y
 	sta PlayerSpriteBuffer
 	;Decrement and store the sprite draw line
-	dex
-	stx SpriteSliceToDraw
+	dey
+	sty SpriteSliceToDraw
 SkipPlayerSprite
 
 FinishScanline
@@ -200,6 +234,7 @@ OverscanEnd
 	jmp VSync
 	
 SpriteFaceRight
+	.byte %00000000 ;
 	.byte %01111110 ;
 	.byte %11111111 ;
 	.byte %11111000 ;
@@ -209,6 +244,7 @@ SpriteFaceRight
 	.byte %11111001 ;
 	.byte %01111110 ;
 SpriteFaceDown
+	.byte %00000000 ;
 	.byte %01111110 ;
 	.byte %11000011 ;
 	.byte %10111101 ;
@@ -218,6 +254,7 @@ SpriteFaceDown
 	.byte %11111111 ;
 	.byte %01111110 ;
 SpriteFaceUp
+	.byte %00000000 ;
 	.byte %01111110 ;
 	.byte %11111111 ;
 	.byte %11111111 ;
@@ -227,8 +264,8 @@ SpriteFaceUp
 	.byte %11111111 ;
 	.byte %01111110 ;
 
-PlayerSpritePointer
-.word
+
+
 
 	org $FFFC
 	.word Start

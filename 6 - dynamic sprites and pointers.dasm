@@ -1,10 +1,11 @@
-; Scan Line Buffering
-; I am again leaning on a great tutorial https://alienbill.com/2600/101/07buffer.html
-; I noticed in my previous example that weird stuff happened to the sprite at the left edge of the screen. If you got close to the left 
-; edge the player sprite would partially and then fully disappear. I figured it had to be a timing problem, that I had too much going on 
-; for the sprite to fit in HBlank. I did some cycle counting and yeah, for sure. I then found the tutorial above. 
-; I read the intro of that page and then came up with my own implementation before looking at his. Works great. So I guess buffering
-; is going to be a big deal
+; Dynamic Sprites and Pointers
+; OK, so we know how to display a player sprite. But in a real game we're going to need to change the sprite out
+; either for animation, or changing the sprite at different states or whatever. And doing that will require a bit
+; of work. We'll need a couple things:
+;	1. WE NEED POINTERS! Right now our buffer code gets written into just by copying data from SpriteFaceRight. We're going to need multiple sprites
+;		and a pointer that lets us read from whatever sprite is currently selected
+;	2. We will need to refactor our scanline counter. In order to implement pointers we're going to need to use some op codes that
+;		require use of the Y register, which we've blocked off as the scanline counter. Lets move that into memory
 
 	processor 6502
 	include vcs.h
@@ -27,7 +28,7 @@ HorizMotionLeft = $89
 HorizMotionRight = $90
 
 PlayerSpriteBuffer = $91
-
+ScanlineCounter = $92
 
 Start
 	CLEAN_START
@@ -38,6 +39,7 @@ Start
 
 	lda #192
 	sta ScanlineCount
+	sta ScanlineCounter
 	lda #43
 	sta VBlankTimer
 	lda #35
@@ -61,8 +63,10 @@ Start
 	lda #$F0
 	sta HorizMotionRight
 
-	lda #0
-	sta PlayerSpriteBuffer
+	lda #<SpriteFaceRight
+	sta PlayerSpritePointer
+	lda #>SpriteFaceRight
+	sta PlayerSpritePointer+1
 
 VSync
 	sta WSYNC
@@ -82,7 +86,8 @@ VBlankStart
 
 VBlankLogic
 	;Do vblank stuff here
-	ldy ScanlineCount
+	lda ScanlineCount
+	sta ScanlineCounter
 	;Set the number of lines of player sprite to draw to 0
 	;this ensures we skip drawing until the right time
 	lda #0
@@ -108,12 +113,16 @@ CheckMoveLeft
 	bit SWCHA
 	bne CheckMoveRight
 	ldx HorizMotionLeft
+	lda #$0B
+	sta REFP0
 
 CheckMoveRight
 	lda InputRight
 	bit SWCHA
 	bne SetHorizontalMovement
-	ldx HorizMotionRight	
+	ldx HorizMotionRight
+	lda #0
+	sta REFP0
 
 SetHorizontalMovement
 	stx HMP0	
@@ -147,7 +156,8 @@ DrawScanLine
 
 CheckPlayerOnScanline
 	;See if this is the line we should draw at
-	cpy PlayerSpriteY
+	ldx ScanlineCounter
+	cpx PlayerSpriteY
 	;If it isn't the line we should start drawing the player sprite at move on
 	bne BufferPlayerSprite
 	;If it is the line we should start drawing at set the lines of sprite to draw to 8
@@ -161,7 +171,7 @@ BufferPlayerSprite
 	;If the line count is 0 there's nothing to draw so skip drawing
 	beq SkipPlayerSprite
 	;Load the sprite line and buffer it 
-	lda SpriteFace-1,X
+	lda SpriteFaceRight-1,X
 	sta PlayerSpriteBuffer
 	;Decrement and store the sprite draw line
 	dex
@@ -169,7 +179,7 @@ BufferPlayerSprite
 SkipPlayerSprite
 
 FinishScanline
-	dey
+	dec ScanlineCounter
 	bne HBlank
 
 OverscanStart
@@ -189,15 +199,36 @@ OverscanEnd
 	sta WSYNC
 	jmp VSync
 	
-SpriteFace
-	.byte %01111110
-	.byte %11000011
-	.byte %10111101
-	.byte %11111111
-	.byte %10011001
-	.byte %10011001
-	.byte %11111111
-	.byte %01111110
+SpriteFaceRight
+	.byte %01111110 ;
+	.byte %11111111 ;
+	.byte %11111000 ;
+	.byte %11110111 ;
+	.byte %11111111 ;
+	.byte %11111001 ;
+	.byte %11111001 ;
+	.byte %01111110 ;
+SpriteFaceDown
+	.byte %01111110 ;
+	.byte %11000011 ;
+	.byte %10111101 ;
+	.byte %11111111 ;
+	.byte %10011001 ;
+	.byte %10011001 ;
+	.byte %11111111 ;
+	.byte %01111110 ;
+SpriteFaceUp
+	.byte %01111110 ;
+	.byte %11111111 ;
+	.byte %11111111 ;
+	.byte %11111111 ;
+	.byte %11111111 ;
+	.byte %11111111 ;
+	.byte %11111111 ;
+	.byte %01111110 ;
+
+PlayerSpritePointer
+.word
 
 	org $FFFC
 	.word Start

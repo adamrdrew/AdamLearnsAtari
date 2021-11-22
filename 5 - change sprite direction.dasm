@@ -1,10 +1,7 @@
-; Scan Line Buffering
-; I am again leaning on a great tutorial https://alienbill.com/2600/101/07buffer.html
-; I noticed in my previous example that weird stuff happened to the sprite at the left edge of the screen. If you got close to the left 
-; edge the player sprite would partially and then fully disappear. I figured it had to be a timing problem, that I had too much going on 
-; for the sprite to fit in HBlank. I did some cycle counting and yeah, for sure. I then found the tutorial above. 
-; I read the intro of that page and then came up with my own implementation before looking at his. Works great. So I guess buffering
-; is going to be a big deal
+; Changing sprite direction
+; A rare convienience in the hardware. Just requires writing to a register. Check out the
+; loads and stores to REFP0 (Reflection Player 0) in the movement code. I was going to do the
+; next example and this in one, but that one turns out to require a refactor, so this one is easy
 
 	processor 6502
 	include vcs.h
@@ -61,9 +58,6 @@ Start
 	lda #$F0
 	sta HorizMotionRight
 
-	lda #0
-	sta PlayerSpriteBuffer
-
 VSync
 	sta WSYNC
 	lda #%0010
@@ -108,12 +102,16 @@ CheckMoveLeft
 	bit SWCHA
 	bne CheckMoveRight
 	ldx HorizMotionLeft
+	lda #$0B
+	sta REFP0
 
 CheckMoveRight
 	lda InputRight
 	bit SWCHA
 	bne SetHorizontalMovement
-	ldx HorizMotionRight	
+	ldx HorizMotionRight
+	lda #0
+	sta REFP0
 
 SetHorizontalMovement
 	stx HMP0	
@@ -161,7 +159,7 @@ BufferPlayerSprite
 	;If the line count is 0 there's nothing to draw so skip drawing
 	beq SkipPlayerSprite
 	;Load the sprite line and buffer it 
-	lda SpriteFace-1,X
+	lda SpriteFaceRight-1,X
 	sta PlayerSpriteBuffer
 	;Decrement and store the sprite draw line
 	dex
@@ -189,15 +187,33 @@ OverscanEnd
 	sta WSYNC
 	jmp VSync
 	
-SpriteFace
-	.byte %01111110
-	.byte %11000011
-	.byte %10111101
-	.byte %11111111
-	.byte %10011001
-	.byte %10011001
-	.byte %11111111
-	.byte %01111110
+SpriteFaceRight
+	.byte %01111110 ;
+	.byte %11111111 ;
+	.byte %11111000 ;
+	.byte %11110111 ;
+	.byte %11111111 ;
+	.byte %11111001 ;
+	.byte %11111001 ;
+	.byte %01111110 ;
+SpriteFaceDown
+	.byte %01111110 ;
+	.byte %11000011 ;
+	.byte %10111101 ;
+	.byte %11111111 ;
+	.byte %10011001 ;
+	.byte %10011001 ;
+	.byte %11111111 ;
+	.byte %01111110 ;
+SpriteFaceUp
+	.byte %01111110 ;
+	.byte %11111111 ;
+	.byte %11111111 ;
+	.byte %11111111 ;
+	.byte %11111111 ;
+	.byte %11111111 ;
+	.byte %11111111 ;
+	.byte %01111110 ;
 
 	org $FFFC
 	.word Start

@@ -1,0 +1,209 @@
+; Moving the player sprite
+; First of all an ACK - I am leaning heavily on this great tutorial https://alienbill.com/2600/101/05joy.html
+; The movement code here is basically a line by line recast of his original code shimmed into my VC template code. In fact, his code is better because
+; it isn't so memory wasteful. I define a bunch of variables to make magic numbers readable. You wouldn't do this in
+; real code. You'd do what he does, just comment next to magic numbers. 
+;
+; We add the movement code to VBlank because we only want to register movement once per frame, not once per scanline. We have to add a HMOVE write to VBLankEnd
+; to enable movement. That's just a hardware boilerplate thing you have to do. We read the input which stored bitwise at address SWCHA. We simply do bit compares
+; between SWCHA and a bunch of input variables I defined. 
+;
+; For vertical movement we just mutate PlayerSpriteY and our draw code picks that up. Good enough. Horizontal movement though - that gets weird. I understand
+; a lot of the VCS's design, meaning I understand why the decisions that were made were made. I get why the TIA does its whole scanline madness. Its a brilliant
+; way to reduce cost. But I cannot understand why horizontal positioning for sprites is so fucking weird. As mentioned in a previous example we have no
+; player X variable. We have no way to get or set an X coordinate directly. Instead we have to use a strange movement register system.
+;
+; I store the movement byte masks in HorizMotionLeft and HorizMotionRight. If we detect movement we right those bitmasks into X and then store X in HMP0 which is
+; the Horizontal Movement Player 0 address. The HMOVE strobe we talked about earlier ensures that movement is applied. So, overall, not too bad except in the
+; ways that it is in fact that bad.
+
+	processor 6502
+	include vcs.h
+	include macro.h
+	org $F000
+
+ScanlineCount = $80
+VBlankTimer = $81
+OverscanTimer = $82
+
+PlayerSpriteY = $83
+SpriteSliceToDraw = $84
+
+InputUp = $85
+InputDown = $86
+InputLeft = $87
+InputRight = $88
+
+HorizMotionLeft = $89
+HorizMotionRight = $90
+
+
+Start
+	CLEAN_START
+	lda #$AA
+	sta COLUBK
+	lda #$34
+	sta COLUP0
+
+	lda #192
+	sta ScanlineCount
+	lda #43
+	sta VBlankTimer
+	lda #35
+	sta OverscanTimer
+	lda #75
+	sta PlayerSpriteY
+	lda #0
+	sta SpriteSliceToDraw
+
+	lda #%00100000
+	sta InputUp
+	lda #%00010000
+	sta InputDown
+	lda #%01000000
+	sta InputLeft
+	lda #%10000000
+	sta InputRight
+
+	lda #$10
+	sta HorizMotionLeft
+	lda #$F0
+	sta HorizMotionRight
+
+VSync
+	sta WSYNC
+	lda #%0010
+	sta VSYNC
+	sta WSYNC
+	sta WSYNC
+	sta WSYNC
+	lda #0
+	sta VSYNC
+
+VBlankStart
+	lda #%0010
+	sta VBLANK
+	lda VBlankTimer
+	sta TIM64T
+
+VBlankLogic
+	;Do vblank stuff here
+	ldy ScanlineCount
+	;Set the number of lines of player sprite to draw to 0
+	;this ensures we skip drawing until the right time
+	lda #0
+	sta SpriteSliceToDraw
+
+	lda InputUp
+	bit SWCHA
+	bne CheckMoveDown
+	dec PlayerSpriteY
+
+CheckMoveDown
+	lda InputDown
+	bit SWCHA
+	bne CheckMoveLeft
+	inc PlayerSpriteY
+
+CheckMoveLeft
+	;We'll use register X for our horizontal movement speed
+	;Default horizontal speed is 0
+	ldx #0
+
+	lda InputLeft
+	bit SWCHA
+	bne CheckMoveRight
+	ldx HorizMotionLeft
+
+CheckMoveRight
+	lda InputRight
+	bit SWCHA
+	bne SetHorizontalMovement
+	ldx HorizMotionRight	
+
+SetHorizontalMovement
+	stx HMP0	
+
+
+VBlankEnd
+	lda INTIM
+	bne VBlankEnd
+	lda #0
+	sta VBLANK
+	sta WSYNC
+	;This is new. You need to have this after a WSYNC in order to apply motion. Doing this in VBlank
+	;ensures we only do this once per frame. If you put it in HBlank and try and do it per-scanline
+	;shit gets weird
+	sta HMOVE
+
+
+HBlank
+	;Do pre-line stuff here
+	sta WSYNC
+	
+
+DrawScanLine
+	
+
+SetPlayerSpriteDrawOffset
+	;By default draw nothing in the player 0 register
+	lda #0
+	sta GRP0
+	;See if this is the line we should draw at
+	cpy PlayerSpriteY
+	;If it isn't the line we should start drawing the player sprite at move on
+	bne DrawPlayerSprite
+	;If it is the line we should start drawing at set the lines of sprite to draw to 8
+	lda #8
+	sta SpriteSliceToDraw
+
+
+DrawPlayerSprite
+	;Load the sprite line count
+	ldx SpriteSliceToDraw
+	cpx #0
+	;If the line count is 0 there's nothing to draw so skip drawing
+	beq AfterPlayerSprite
+	;Load the sprite line to draw and draw it
+	lda SpriteFace-1,X
+	sta GRP0
+	;Decrement and store the sprite draw line
+	dex
+	stx SpriteSliceToDraw
+
+AfterPlayerSprite
+
+FinishScanline
+	dey
+	bne HBlank
+
+OverscanStart
+	lda #%0010
+	sta VBLANK
+	lda OverscanTimer
+	sta TIM64T
+
+OverscanLogic
+	;Do overscan stuff here
+
+OverscanEnd
+	lda INTIM
+	bne OverscanEnd
+	lda #0
+	sta VBLANK
+	sta WSYNC
+	jmp VSync
+	
+SpriteFace
+	.byte %01111110
+	.byte %11000011
+	.byte %10111101
+	.byte %11111111
+	.byte %10011001
+	.byte %10011001
+	.byte %11111111
+	.byte %01111110
+
+	org $FFFC
+	.word Start
+	.word Start

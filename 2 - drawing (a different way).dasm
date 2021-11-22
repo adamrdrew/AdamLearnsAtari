@@ -19,7 +19,9 @@
 ; In this example we simply pad the sprite with an extra line 0 that is always 0. We set our sprite slice
 ; to draw to 0 in HBlank so we always draw that 0 line. If the current scanline is our player y we set
 ; the valye of slice to draw to 8 (height) and then decrement. Single draw call, reduced conditionality,
-; easier to reason about, but takes up more memory. Better or worse? I don't know!
+; easier to reason about, but takes up more memory. Better or worse? I don't know! I think its probably
+; worse for VCS code because if we do this for every sprite we lose a byte of memory with every sprite. If
+; we have 8 sprites we've lost 8 bytes! That's over 6% of total system RAM!
 
 	processor 6502
 	include vcs.h

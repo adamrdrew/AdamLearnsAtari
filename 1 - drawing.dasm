@@ -17,6 +17,10 @@
 ; we'll set SpriteSliceToDraw to the height of the sprite, in this case 8. 
 ; We'll check the value of SpriteSliceToDraw and if its 0 skip the draw code. If its not zero we'll draw the slice
 ; and decrement SpriteSliceToDraw
+;
+; Also, notice something off here? We set the sprite's Y position (scanline) but not its X position? We just sort of breeze
+; past that. Yeah, there's no way to set the X coordinate of a sprite. Seriously. You can approximate setting it by attempting
+; to draw the sprite out on a specific color clock cycle, but its not exact. We're just gonna skip that for now.
 
 	processor 6502
 	include vcs.h

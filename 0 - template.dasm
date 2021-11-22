@@ -1,0 +1,114 @@
+; A simple VCS program template
+
+	processor 6502
+	include vcs.h
+	include macro.h
+	org $F000
+
+;Set up some memory locations we'll use
+ScanlineCount = $80
+VBlankTimer = $81
+OverscanTimer = $82
+
+Start
+	;From macro.h gets memory and other stuff initialized
+	CLEAN_START
+	;Set background color
+	lda #$AA
+	sta COLUBK
+	;Set some variables
+	lda #192
+	sta ScanlineCount
+	lda #43
+	sta VBlankTimer
+	lda #35
+	sta OverscanTimer
+
+;Tell the TV we're starting a new frame
+VSync
+	;Wait until the electron hun is back to origin
+	sta WSYNC
+	;Enable VSYNC
+	lda #%0010
+	sta VSYNC
+	;Wait for 3 scanlines. This is a hardware thing and we have to do it
+	sta WSYNC
+	sta WSYNC
+	sta WSYNC
+	;Disable VSYNC
+	lda #0
+	sta VSYNC
+
+;We have 37 scanlines of VBlank time before we start drawing scan lines
+;This is a great place to do logic. The tightest code would cycle count here
+;but we use a timer instead. Not as tight, but still good. 
+VBlankStart
+	;Enable VBlank
+	lda #%0010
+	sta VBLANK
+	;Set the timer
+	lda VBlankTimer
+	sta TIM64T
+
+VBlankLogic
+	;Do vblank stuff here
+
+VBlankEnd
+	;Check the timer
+	lda INTIM
+	;If its not zero loop
+	bne VBlankEnd
+	;Disable VBlank
+	lda #0
+	sta VBLANK
+	;Wait until the electron gun is back at origin
+	sta WSYNC
+	;Load the count of scanlines into the Y register
+	ldy ScanlineCount
+
+;There's a little bit of time before each scanline where you can do some logic
+;Only around 10-15 CPU cycles or so, but still something
+HBlank
+	;Do pre-line stuff here
+	sta WSYNC
+
+DrawScanLine
+	;Do scanline stuff here
+
+FinishScanline
+	;Reduce our scanline counter
+	dey
+	;If we're not on scanline 0 loop back to HBlank
+	bne HBlank
+
+;We've drawn all our scanlines and now we have around 30 scanlines
+;worth of overscan. Another great place for logic
+OverscanStart
+	;Enable VBlank
+	lda #%0010
+	sta VBLANK
+	;Set up the timer
+	lda OverscanTimer
+	sta TIM64T
+
+OverscanLogic
+	;Do overscan stuff here
+
+OverscanEnd
+	;Check the timer
+	lda INTIM
+	;If the timer isn't 0 loop
+	bne OverscanEnd
+	;Disable VBlank
+	lda #0
+	sta VBLANK
+	;Finish out any line we might have in flight
+	sta WSYNC
+	;Loop back to vsync
+	jmp VSync
+	
+	org $FFFC
+	.word Start
+	.word Start
+
+

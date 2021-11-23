@@ -1,0 +1,417 @@
+; Player and Playfield
+;
+; This merges our two examples together: player with multiple frames and control, and colored playfied
+; But we've got problems. The rendering is messed up. The playfied seems to warp around the player. 
+; Also, according to the Stella debugger we're outputting extra scanlines here and there. And it seems
+; like the extra scan lines and the warping are connected. But, I don't actually know that. I've been chasing it
+; for an hour or more and I'm really not sure. It kinda seems like the warping happens no matter how many
+; expensive ops I try to remove. Our code has also become generally unweildy. It's hard to know what's going on
+; I need to find a way to reorganize. I'm looking at some stuff online (https://www.randomterrain.com/atari-2600-lets-make-a-game-spiceware-00.html)
+; so hopefully I can get some inspiration
+
+	processor 6502
+	include vcs.h
+	include macro.h
+	org $F000
+
+
+;Number of scanlines on the screen
+ScanlineCount = $80
+;Index of current scan line
+ScanlineCounter = $81
+;How long we VBLank for
+VBlankTimer = $82
+;How long we overscan for
+OverscanTimer = #32
+;Y Index in the playfied data tables
+PlayFieldYIndex = $84
+;How many lines we should debounce playfield rendering
+PlayFieldLineSkip = $85
+
+;Where we store input magic numbers
+InputUp = $86
+InputDown = $87
+InputLeft = $88
+InputRight = $89
+
+;Magic number holder for motion codes
+HorizMotionLeft = $8A
+HorizMotionRight = $8D
+
+;Y Position of player
+PlayerSpriteY = $8B
+;Used for rendering slices of sprites
+SpriteSliceToDraw = $8C
+;Buffer for player sprite
+PlayerSpriteBuffer = $8E
+
+;Playfield buffers
+PlayFieldLineBuffer0 = $8F
+PlayFieldLineBuffer1 = $90
+PlayFieldLineBuffer2 = $91
+PlayFieldColorBuffer = $92
+
+;16 bit pointer for player sprite
+PlayerSpritePointer	= $93	
+	.word;
+PlayerSpritePointerReserved = $94
+
+Start
+	;From macro.h gets memory and other stuff initialized
+	CLEAN_START
+	;Set background color
+	lda #$04
+	sta COLUBK
+
+	;Mirror the PF
+	lda #%1111
+	sta CTRLPF
+
+	;190 scanlines
+	lda #190
+	sta ScanlineCount
+	sta ScanlineCounter
+	;2752 CPU cycles for VBlank
+	lda #43
+	sta VBlankTimer
+	;2240 CPU cycles for Overscan
+	lda #35
+	sta OverscanTimer
+
+	lda #0
+	sta PlayFieldYIndex
+	lda #0
+	sta PlayFieldLineSkip
+	lda #0
+	sta PlayFieldLineBuffer0
+	lda #0
+	sta PlayFieldLineBuffer1
+	lda #0
+	sta PlayFieldLineBuffer2
+	lda #0
+	sta PlayFieldColorBuffer
+
+	lda #75
+	sta PlayerSpriteY
+	lda #0
+	sta SpriteSliceToDraw
+
+	lda #%00010000
+	sta InputUp
+	lda #%00100000
+	sta InputDown
+	lda #%01000000
+	sta InputLeft
+	lda #%10000000
+	sta InputRight
+
+	lda #$10
+	sta HorizMotionLeft
+	lda #$F0
+	sta HorizMotionRight
+
+	SET_POINTER PlayerSpritePointer, SpriteFaceRight
+
+;Tell the TV we're starting a new frame
+VSync
+	;Moved to using DASM's macro
+	VERTICAL_SYNC
+
+;We have 37 scanlines of VBlank time before we start drawing scan lines
+;This is a great place to do logic. The tightest code would cycle count here
+;but we use a timer instead. Not as tight, but still good. 
+VBlankStart
+	;Enable VBlank
+	lda #%0010
+	sta VBLANK
+	;Set the timer
+	lda VBlankTimer
+	sta TIM64T
+
+VBlankLogic
+	ldx #0
+	stx PlayFieldYIndex
+	sta SpriteSliceToDraw
+
+	lda ScanlineCount
+	sta ScanlineCounter
+
+
+CheckMoveUp
+	lda InputUp
+	bit SWCHA
+	bne CheckMoveDown
+	inc PlayerSpriteY
+	SET_POINTER PlayerSpritePointer, SpriteFaceUp
+
+CheckMoveDown
+	lda InputDown
+	bit SWCHA
+	bne CheckMoveLeft
+	dec PlayerSpriteY
+	SET_POINTER PlayerSpritePointer, SpriteFaceDown
+
+
+CheckMoveLeft
+	;We'll use register X for our horizontal movement speed
+	;Default horizontal speed is 0
+	ldx #0
+	lda InputLeft
+	bit SWCHA
+	bne CheckMoveRight
+	ldx HorizMotionLeft
+	lda #$0B
+	sta REFP0
+	SET_POINTER PlayerSpritePointer, SpriteFaceRight
+
+CheckMoveRight
+	lda InputRight
+	bit SWCHA
+	bne SetHorizontalMovement
+	ldx HorizMotionRight
+	lda #0
+	sta REFP0
+	SET_POINTER PlayerSpritePointer, SpriteFaceRight
+
+SetHorizontalMovement
+	stx HMP0	
+
+VBlankEnd
+	lda ScanlineCount
+	sta ScanlineCounter
+	;Check the timer
+	lda INTIM
+	;If its not zero loop
+	bne VBlankEnd
+	;Disable VBlank
+	lda #0
+	sta SpriteSliceToDraw
+	sta VBLANK
+	;Wait until the electron gun is back at origin
+	sta WSYNC
+	sta HMOVE
+
+;There's a little bit of time before each scanline where you can do some logic
+;Only around 10-15 CPU cycles or so, but still something
+HBlank
+	;Do pre-line stuff here
+	sta WSYNC
+
+DrawAndClearPlayerBuffer
+	;Draw the player buffer to the screen and then clear it out
+	;This is our only draw call, so this is the only thing that would
+	;add any cycle overhead to the currently rendering line
+	lda PlayerSpriteBuffer
+	sta GRP0
+	lda #0
+	sta PlayerSpriteBuffer
+	;Now we have a whole glorious scanline worth of CPU to do whatever we want for the next line!
+
+DrawPlayfieldBuffers
+	;Write the playfield buffers out to the playfield registers
+	;This seems like a LOT of cycles to have to sacrifice every HBlank - 18 I reckon
+	lda PlayFieldColorBuffer
+	sta COLUPF
+	lda PlayFieldLineBuffer0
+	sta PF0
+	lda PlayFieldLineBuffer1
+	sta PF1
+	lda PlayFieldLineBuffer2
+	sta PF2
+
+DrawScanLine
+
+;Our deferred playfield renderer
+;We are using a 20x20 playfield to make things easier
+;To do that we need to render the same playfield line for 10 scanlines
+;So we render line 0 from the playfield for 10 lines, then line 1 for 10 lines
+;Giving us an effective resolution of 200 pixels, about what we've got in scanlines
+;This code debounces via PlayFieldSkip, counting down to 0, and then renders
+;the current playfield lines into the buffers. So, this code is expensive but most of it 
+;only runs every 10 lines AND the beam isn't waiting on it because we're writing to a buffer
+BufferPlayfieldLine
+	ldx PlayFieldLineSkip
+	bne EndPlayfieldLine
+	ldx #10
+	stx PlayFieldLineSkip
+	ldx PlayFieldYIndex
+	lda PFC,X
+	sta PlayFieldColorBuffer
+	lda PF0A,X
+	sta PlayFieldLineBuffer0
+	lda PF1A,X
+	sta PlayFieldLineBuffer1
+	lda PF2A,X
+	sta PlayFieldLineBuffer2
+	inx
+	stx PlayFieldYIndex
+EndPlayfieldLine
+	dec PlayFieldLineSkip
+	;Do scanline stuff here
+
+
+CheckPlayerOnScanline
+	;See if this is the line we should draw at
+	ldx ScanlineCounter
+	cpx PlayerSpriteY
+	;If it isn't the line we should start drawing the player sprite at move on
+	bne BufferPlayerSprite
+	;If it is the line we should start drawing at set the lines of sprite to draw to 8
+	lda #8
+	sta SpriteSliceToDraw
+
+BufferPlayerSprite
+	;Load the sprite line count
+	ldy SpriteSliceToDraw
+	beq SkipPlayerSprite
+	;Load the sprite line and buffer it 
+	lda (PlayerSpritePointer),y
+	sta PlayerSpriteBuffer
+	;Decrement and store the sprite draw line
+	dey
+	sty SpriteSliceToDraw
+SkipPlayerSprite
+
+FinishScanline
+	;Reduce our scanline counter
+	dec ScanlineCounter
+	;If we're not on scanline 0 loop back to HBlank
+	bne HBlank
+
+OverscanStart
+	sta WSYNC
+	lda #%0010
+	sta VBLANK
+	lda OverscanTimer
+	sta TIM64T
+
+OverscanLogic
+	;Do overscan stuff here
+
+
+OverscanEnd
+	sta WSYNC
+	lda INTIM
+	bne OverscanEnd
+	lda #0
+	sta VBLANK
+	sta WSYNC 
+	jmp VSync
+	
+PF0A
+	.byte %11110000
+	.byte %00010000
+	.byte %00010000
+	.byte %00010000
+	.byte %00010000
+	.byte %00010000
+	.byte %00010000
+	.byte %00010000
+	.byte %00010000
+	.byte %00010000
+	.byte %00010000
+	.byte %00010000
+	.byte %00010000
+	.byte %11010000
+	.byte %11010000
+	.byte %11010000
+	.byte %00010000
+	.byte %00010000
+	.byte %11110000
+PF1A
+	.byte %11111111
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00110000
+	.byte %00110000
+	.byte %00110000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %11111111
+PF2A
+	.byte %11111111
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %11000000
+	.byte %11000000
+	.byte %11000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %11111111
+PFC
+	.byte $AA
+	.byte $A8
+	.byte $A4
+	.byte $A2
+	.byte $A0
+	.byte $AA
+	.byte $A8
+	.byte $A4
+	.byte $A2
+	.byte $A0
+	.byte $AA
+	.byte $A8
+	.byte $A4
+	.byte $A2
+	.byte $A0
+	.byte $AA
+	.byte $A8
+	.byte $A4
+	.byte $A0
+
+SpriteFaceRight
+	.byte %00000000 ;
+	.byte %01111110 ;
+	.byte %11111111 ;
+	.byte %11111000 ;
+	.byte %11110111 ;
+	.byte %11111111 ;
+	.byte %11111001 ;
+	.byte %11111001 ;
+	.byte %01111110 ;
+SpriteFaceDown
+	.byte %00000000 ;
+	.byte %01111110 ;
+	.byte %11000011 ;
+	.byte %10111101 ;
+	.byte %11111111 ;
+	.byte %10011001 ;
+	.byte %10011001 ;
+	.byte %11111111 ;
+	.byte %01111110 ;
+SpriteFaceUp
+	.byte %00000000 ;
+	.byte %01111110 ;
+	.byte %11111111 ;
+	.byte %11111111 ;
+	.byte %11111111 ;
+	.byte %11111111 ;
+	.byte %11111111 ;
+	.byte %11111111 ;
+	.byte %01111110 ;
+
+	org $FFFC
+	.word Start
+	.word Start
+
+

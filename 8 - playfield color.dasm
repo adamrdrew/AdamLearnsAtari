@@ -33,7 +33,6 @@ PlayFieldLineBuffer1 = $86
 PlayFieldLineBuffer2 = $87
 PlayFieldColorBuffer = $88
 
-
 Start
 	;From macro.h gets memory and other stuff initialized
 	CLEAN_START

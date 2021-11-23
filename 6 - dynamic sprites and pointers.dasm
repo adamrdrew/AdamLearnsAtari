@@ -230,7 +230,7 @@ OverscanEnd
 	bne OverscanEnd
 	lda #0
 	sta VBLANK
-	sta WSYNC
+	sta WSYNC 
 	jmp VSync
 	
 SpriteFaceRight
@@ -263,9 +263,6 @@ SpriteFaceUp
 	.byte %11111111 ;
 	.byte %11111111 ;
 	.byte %01111110 ;
-
-
-
 
 	org $FFFC
 	.word Start

@@ -1,0 +1,226 @@
+; Playfield Into
+; Its funny how the things you think will be easy are hard. I thought playfields would be a walk in the park. They suck.
+; Playfields are what you build level geometry out of: floors, walls, etc. Its what you use to build all the stuff that
+; isn't a player, missle, or ball. The way it works is exactly how you wouldn't want it to work.
+; There are 3 playfield registers: PF0, PF1, and PF2. PF0 contains pixels 0-4, PF1 pixels 4-12, PF2 pixels 12-20
+; Just like with sprites only one scanline at a time is drawn. Its on you to ride the beam and draw the playfield
+; That sounds almost OK, right? Yeah. Wait. Check this shit out:
+;	1. PF0 and PF2 are backwards! 10100001 would draw 10000101. PF1 is forwards though! Isn't that just horrible?
+;	2. The playfield is 20 pixels wide (4+8+8) so its VERY low res
+;	3. The playfield only defines HALF a screen. The other half either just repeats, or is mirrored! 
+
+	processor 6502
+	include vcs.h
+	include macro.h
+	org $F000
+
+;Set up some memory locations we'll use
+ScanlineCount = $80
+VBlankTimer = $81
+OverscanTimer = $82
+
+PlayFieldYIndex = $83
+PlayFieldLineSkip = $84
+
+Start
+	;From macro.h gets memory and other stuff initialized
+	CLEAN_START
+	;Set background color
+	lda #$AA
+	sta COLUBK
+
+	lda #$34
+	sta COLUPF
+
+	lda #%1111
+	sta CTRLPF
+
+	;Set some variables
+	lda #200
+	sta ScanlineCount
+	lda #43
+	sta VBlankTimer
+	lda #35
+	sta OverscanTimer
+	lda #0
+	sta PlayFieldYIndex
+	lda #10
+	sta PlayFieldLineSkip
+
+;Tell the TV we're starting a new frame
+VSync
+	;Wait until the electron hun is back to origin
+	sta WSYNC
+	;Enable VSYNC
+	lda #%0010
+	sta VSYNC
+	;Wait for 3 scanlines. This is a hardware thing and we have to do it
+	sta WSYNC
+	sta WSYNC
+	sta WSYNC
+	;Disable VSYNC
+	lda #0
+	sta VSYNC
+
+;We have 37 scanlines of VBlank time before we start drawing scan lines
+;This is a great place to do logic. The tightest code would cycle count here
+;but we use a timer instead. Not as tight, but still good. 
+VBlankStart
+	;Enable VBlank
+	lda #%0010
+	sta VBLANK
+	;Set the timer
+	lda VBlankTimer
+	sta TIM64T
+
+VBlankLogic
+	;Do vblank stuff here
+	ldx #0
+	stx PlayFieldYIndex
+
+VBlankEnd
+	;Check the timer
+	lda INTIM
+	;If its not zero loop
+	bne VBlankEnd
+	;Disable VBlank
+	lda #0
+	sta VBLANK
+	;Wait until the electron gun is back at origin
+	sta WSYNC
+	;Load the count of scanlines into the Y register
+	ldy ScanlineCount
+
+;There's a little bit of time before each scanline where you can do some logic
+;Only around 10-15 CPU cycles or so, but still something
+HBlank
+	;Do pre-line stuff here
+	sta WSYNC
+
+DrawScanLine
+	;Do overscan stuff here
+	ldx PlayFieldLineSkip
+	dex
+	bne SkipLine
+	ldx #10
+	stx PlayFieldLineSkip
+	ldx PlayFieldYIndex
+	lda PF0A,X
+	sta PF0
+	lda PF1A,X
+	sta PF1
+	lda PF2A,X
+	sta PF2
+	inx
+	stx PlayFieldYIndex
+SkipLine
+	dec PlayFieldLineSkip
+
+
+	;Do scanline stuff here
+
+FinishScanline
+	;Reduce our scanline counter
+	dey
+	;If we're not on scanline 0 loop back to HBlank
+	bne HBlank
+
+;We've drawn all our scanlines and now we have around 30 scanlines
+;worth of overscan. Another great place for logic
+OverscanStart
+	;Enable VBlank
+	lda #%0010
+	sta VBLANK
+	;Set up the timer
+	lda OverscanTimer
+	sta TIM64T
+
+OverscanLogic
+
+
+OverscanEnd
+	;Check the timer
+	lda INTIM
+	;If the timer isn't 0 loop
+	bne OverscanEnd
+	;Disable VBlank
+	lda #0
+	sta VBLANK
+	;Finish out any line we might have in flight
+	sta WSYNC
+	;Loop back to vsync
+	jmp VSync
+	
+PF0A
+	.byte %11110000
+	.byte %00010000
+	.byte %00010000
+	.byte %00010000
+	.byte %00010000
+	.byte %00010000
+	.byte %00010000
+	.byte %00010000
+	.byte %00010000
+	.byte %00010000
+	.byte %00010000
+	.byte %00010000
+	.byte %00010000
+	.byte %11010000
+	.byte %11010000
+	.byte %11010000
+	.byte %00010000
+	.byte %00010000
+	.byte %00010000
+	.byte %11110000
+
+
+PF1A
+	.byte %11111111
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00110000
+	.byte %00110000
+	.byte %00110000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %11111111
+
+PF2A
+	.byte %11111111
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %11000000
+	.byte %11000000
+	.byte %11000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %00000000
+	.byte %11111111
+
+
+	org $FFFC
+	.word Start
+	.word Start
+
+

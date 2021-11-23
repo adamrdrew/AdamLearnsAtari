@@ -82,14 +82,6 @@ Start
 	sta PlayFieldYIndex
 	lda #0
 	sta PlayFieldLineSkip
-	lda #0
-	sta PlayFieldLineBuffer0
-	lda #0
-	sta PlayFieldLineBuffer1
-	lda #0
-	sta PlayFieldLineBuffer2
-	lda #0
-	sta PlayFieldColorBuffer
 
 	lda #75
 	sta PlayerSpriteY
@@ -121,19 +113,18 @@ VSync
 ;This is a great place to do logic. The tightest code would cycle count here
 ;but we use a timer instead. Not as tight, but still good. 
 VBlankStart
-	;Enable VBlank
 	lda #%0010
 	sta VBLANK
-	;Set the timer
 	lda VBlankTimer
 	sta TIM64T
 
 VBlankLogic
+	lda ScanlineCount
+	sta ScanlineCounter
 	ldx #0
 	stx PlayFieldYIndex
 	stx SpriteSliceToDraw
-	lda ScanlineCount
-	sta ScanlineCounter
+
 
 CheckMoveUp
 	lda InputUp
@@ -175,14 +166,10 @@ SetHorizontalMovement
 	stx HMP0	
 
 VBlankEnd
-	;Check the timer
 	lda INTIM
-	;If its not zero loop
 	bne VBlankEnd
-	;Disable VBlank
 	lda #0
 	sta VBLANK
-	;Wait until the electron gun is back at origin
 	sta WSYNC
 	sta HMOVE
 
@@ -192,38 +179,6 @@ HBlank
 	;Do pre-line stuff here
 	sta WSYNC
 
-;Our deferred playfield renderer
-;We are using a 20x20 playfield to make things easier
-;To do that we need to render the same playfield line for 10 scanlines
-;So we render line 0 from the playfield for 10 lines, then line 1 for 10 lines
-;Giving us an effective resolution of 200 pixels, about what we've got in scanlines
-;This code debounces via PlayFieldSkip, counting down to 0, and then renders
-;the current playfield lines into the buffers. So, this code is expensive but most of it 
-;only runs every 10 lines AND the beam isn't waiting on it because we're writing to a buffer
-BufferPlayfieldLine
-	ldx PlayFieldLineSkip
-	bne EndPlayfieldLine
-	ldx #10
-	stx PlayFieldLineSkip
-	ldx PlayFieldYIndex
-	lda PFC,X
-	sta COLUPF
-	;sta PlayFieldColorBuffer
-	lda PF0A,X
-	sta PF0
-	;sta PlayFieldLineBuffer0
-	lda PF1A,X
-	sta PF1
-	;sta PlayFieldLineBuffer1
-	lda PF2A,X
-	sta PF2
-	;sta PlayFieldLineBuffer2
-	inx
-	stx PlayFieldYIndex
-EndPlayfieldLine
-	dec PlayFieldLineSkip
-	;Do scanline stuff here
-
 DrawAndClearPlayerBuffer
 	;Draw the player buffer to the screen and then clear it out
 	;This is our only draw call, so this is the only thing that would
@@ -232,13 +187,6 @@ DrawAndClearPlayerBuffer
 	sta GRP0
 	lda #0
 	sta PlayerSpriteBuffer
-	;Now we have a whole glorious scanline worth of CPU to do whatever we want for the next line!
-
-
-
-
-
-
 
 CheckPlayerOnScanline
 	;See if this is the line we should draw at
@@ -253,6 +201,8 @@ CheckPlayerOnScanline
 BufferPlayerSprite
 	;Load the sprite line count
 	ldy SpriteSliceToDraw
+	cpy #0
+	;If the line count is 0 there's nothing to draw so skip drawing
 	beq SkipPlayerSprite
 	;Load the sprite line and buffer it 
 	lda (PlayerSpritePointer),y
@@ -261,6 +211,30 @@ BufferPlayerSprite
 	dey
 	sty SpriteSliceToDraw
 SkipPlayerSprite
+
+
+;So, it seems that this performs better than buffered drawing. I can't really explain that.
+BufferPlayfieldLine
+	ldx PlayFieldLineSkip
+	bne EndPlayfieldLine
+	ldx #10
+	stx PlayFieldLineSkip
+	ldx PlayFieldYIndex
+	lda PFC,X
+	sta COLUPF
+	lda PF0A,X
+	sta PF0
+	lda PF1A,X
+	sta PF1
+	lda PF2A,X
+	sta PF2
+	inx
+	stx PlayFieldYIndex
+EndPlayfieldLine
+	dec PlayFieldLineSkip
+
+
+	;Now we have a whole glorious scanline worth of CPU to do whatever we want for the next line!
 
 FinishScanline
 	;Reduce our scanline counter

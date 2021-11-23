@@ -1,22 +1,16 @@
-; Playfield Into
-; Its funny how the things you think will be easy are hard. I thought playfields would be a walk in the park. They suck.
-; Playfields are what you build level geometry out of: floors, walls, etc. Its what you use to build all the stuff that
-; isn't a player, missle, or ball. The way it works is exactly how you wouldn't want it to work.
-; There are 3 playfield registers: PF0, PF1, and PF2. PF0 contains pixels 0-4, PF1 pixels 4-12, PF2 pixels 12-20
-; Just like with sprites only one scanline at a time is drawn. Its on you to ride the beam and draw the playfield
-; That sounds almost OK, right? Yeah. Wait. Check this shit out:
-;	1. PF0 and PF2 are backwards! 10100001 would draw 10000101. PF1 is forwards though! Isn't that just horrible?
-;	2. The playfield is 20 pixels wide (4+8+8) so its VERY low res
-;	3. The playfield only defines HALF a screen. The other half either just repeats, or is mirrored! 
-;	4. Playfields are expensive! You are going to sacrifice AT LEAST 10-20 cycles every scan line to draw them!
+; Playfield Color
+; A sign of a true VCS master coder is granular color control of the playfield. Examples are rare, but 
+; a few amazing developers have been able to write code to change the playfield color during the scanline rendering code
+; without impacting performance or drawing, and while lining up with the playfield. I however am not a VCS coder
+; nor do I aim to be one. We will do soemthing far less ambitious: change colors for groups of lines.
+; 
+; We do this exactly the way you'd think we would. Add another lookup table for color. Read and buffer the color
+; apply it at HBlank. You might think we could just apply color when we load it but its mid scanline, we have to
+; suck up the extra byte of RAM and buffer it. 
 ;
-; All that said I came up with an implementation I can live with. We're using buffered drawing so even though its
-; expensive we don't have to block rendering. I landed ona 20x20 map, meaning we render each line of the playfield
-; for 10 scanlines. Good enough. It leaves the data tables manageable
-;
-; * 31-37 are our new variables
-; * 121-126 are our buffered draws
-; * 139-154 is our render to buffer
+; I made some adjustments to overscan and line count. I brought it down to 190 with 20x19. More NTSC safe. Still,
+; you'll notice we've got something wrong with our rendering. Its looping back around. The bottom of the screen
+; is stomping on the top. We're at 190 lines so I'm not sure why that would be. But, its not a huge deal we'll figure it out later
 
 	processor 6502
 	include vcs.h
@@ -37,22 +31,22 @@ PlayFieldLineSkip = $84
 PlayFieldLineBuffer0 = $85
 PlayFieldLineBuffer1 = $86
 PlayFieldLineBuffer2 = $87
+PlayFieldColorBuffer = $88
+
 
 Start
 	;From macro.h gets memory and other stuff initialized
 	CLEAN_START
 	;Set background color
-	lda #$AA
+	lda #$04
 	sta COLUBK
 
-	lda #$34
-	sta COLUPF
-
+	;Mirror the PF
 	lda #%1111
 	sta CTRLPF
 
 	;Set some variables
-	lda #200
+	lda #190
 	sta ScanlineCount
 	lda #43
 	sta VBlankTimer
@@ -68,6 +62,8 @@ Start
 	sta PlayFieldLineBuffer1
 	lda #0
 	sta PlayFieldLineBuffer2
+	lda #0
+	sta PlayFieldColorBuffer
 
 ;Tell the TV we're starting a new frame
 VSync
@@ -120,12 +116,15 @@ HBlank
 	sta WSYNC
 	;Write the playfield buffers out to the playfield registers
 	;This seems like a LOT of cycles to have to sacrifice every HBlank - 18 I reckon
+	lda PlayFieldColorBuffer
+	sta COLUPF
 	lda PlayFieldLineBuffer0
 	sta PF0
 	lda PlayFieldLineBuffer1
 	sta PF1
 	lda PlayFieldLineBuffer2
 	sta PF2
+
 
 DrawScanLine
 
@@ -143,6 +142,8 @@ DrawPlayfieldLine
 	ldx #10
 	stx PlayFieldLineSkip
 	ldx PlayFieldYIndex
+	lda PFC,X
+	sta PlayFieldColorBuffer
 	lda PF0A,X
 	sta PlayFieldLineBuffer0  ;PF0
 	lda PF1A,X
@@ -153,8 +154,6 @@ DrawPlayfieldLine
 	stx PlayFieldYIndex
 EndPlayfieldLine
 	dec PlayFieldLineSkip
-
-
 	;Do scanline stuff here
 
 FinishScanline
@@ -166,6 +165,8 @@ FinishScanline
 ;We've drawn all our scanlines and now we have around 30 scanlines
 ;worth of overscan. Another great place for logic
 OverscanStart
+	;Finish our last line
+	sta WSYNC
 	;Enable VBlank
 	lda #%0010
 	sta VBLANK
@@ -177,6 +178,7 @@ OverscanLogic
 
 
 OverscanEnd
+	;sta WSYNC
 	;Check the timer
 	lda INTIM
 	;If the timer isn't 0 loop
@@ -184,8 +186,6 @@ OverscanEnd
 	;Disable VBlank
 	lda #0
 	sta VBLANK
-	;Finish out any line we might have in flight
-	sta WSYNC
 	;Loop back to vsync
 	jmp VSync
 	
@@ -208,7 +208,6 @@ PF0A
 	.byte %11010000
 	.byte %00010000
 	.byte %00010000
-	.byte %00010000
 	.byte %11110000
 PF1A
 	.byte %11111111
@@ -219,7 +218,6 @@ PF1A
 	.byte %00110000
 	.byte %00110000
 	.byte %00110000
-	.byte %00000000
 	.byte %00000000
 	.byte %00000000
 	.byte %00000000
@@ -250,8 +248,28 @@ PF2A
 	.byte %00000000
 	.byte %00000000
 	.byte %00000000
-	.byte %00000000
 	.byte %11111111
+PFC
+	.byte $AA
+	.byte $A8
+	.byte $A4
+	.byte $A2
+	.byte $A0
+	.byte $AA
+	.byte $A8
+	.byte $A4
+	.byte $A2
+	.byte $A0
+	.byte $AA
+	.byte $A8
+	.byte $A4
+	.byte $A2
+	.byte $A0
+	.byte $AA
+	.byte $A8
+	.byte $A4
+	.byte $A0
+
 
 
 	org $FFFC

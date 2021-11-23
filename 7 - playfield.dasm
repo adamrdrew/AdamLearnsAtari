@@ -8,6 +8,15 @@
 ;	1. PF0 and PF2 are backwards! 10100001 would draw 10000101. PF1 is forwards though! Isn't that just horrible?
 ;	2. The playfield is 20 pixels wide (4+8+8) so its VERY low res
 ;	3. The playfield only defines HALF a screen. The other half either just repeats, or is mirrored! 
+;	4. Playfields are expensive! You are going to sacrifice AT LEAST 10-20 cycles every scan line to draw them!
+;
+; All that said I came up with an implementation I can live with. We're using buffered drawing so even though its
+; expensive we don't have to block rendering. I landed ona 20x20 map, meaning we render each line of the playfield
+; for 10 scanlines. Good enough. It leaves the data tables manageable
+;
+; * 31-37 are our new variables
+; * 121-126 are our buffered draws
+; * 139-154 is our render to buffer
 
 	processor 6502
 	include vcs.h
@@ -19,8 +28,14 @@ ScanlineCount = $80
 VBlankTimer = $81
 OverscanTimer = $82
 
+;Our index in the data table
 PlayFieldYIndex = $83
+;How many lines we should debounce rendering
 PlayFieldLineSkip = $84
+;We buffer and then display on the next scanline, like sprites, to save draw cycles
+PlayFieldLineBuffer0 = $85
+PlayFieldLineBuffer1 = $86
+PlayFieldLineBuffer2 = $87
 
 Start
 	;From macro.h gets memory and other stuff initialized
@@ -46,6 +61,12 @@ Start
 	sta PlayFieldYIndex
 	lda #0
 	sta PlayFieldLineSkip
+	lda #0
+	sta PlayFieldLineBuffer0
+	lda #0
+	sta PlayFieldLineBuffer1
+	lda #0
+	sta PlayFieldLineBuffer2
 
 ;Tell the TV we're starting a new frame
 VSync
@@ -96,23 +117,40 @@ VBlankEnd
 HBlank
 	;Do pre-line stuff here
 	sta WSYNC
+	;Write the playfield buffers out to the playfield registers
+	;This seems like a LOT of cycles to have to sacrifice every HBlank - 18 I reckon
+	lda PlayFieldLineBuffer0
+	sta PF0
+	lda PlayFieldLineBuffer1
+	sta PF1
+	lda PlayFieldLineBuffer2
+	sta PF2
 
 DrawScanLine
-	;Do overscan stuff here
+
+;Our deferred playfield renderer
+;We are using a 20x20 playfield to make things easier
+;To do that we need to render the same playfield line for 10 scanlines
+;So we render line 0 from the playfield for 10 lines, then line 1 for 10 lines
+;Giving us an effective resolution of 200 pixels, about what we've got in scanlines
+;This code debounces via PlayFieldSkip, counting down to 0, and then renders
+;the current playfield lines into the buffers. So, this code is expensive but most of it 
+;only runs every 10 lines AND the beam isn't waiting on it because we're writing to a buffer
+DrawPlayfieldLine
 	ldx PlayFieldLineSkip
-	bne SkipLine
+	bne EndPlayfieldLine
 	ldx #10
 	stx PlayFieldLineSkip
 	ldx PlayFieldYIndex
 	lda PF0A,X
-	sta PF0
+	sta PlayFieldLineBuffer0  ;PF0
 	lda PF1A,X
-	sta PF1
+	sta PlayFieldLineBuffer1 ;PF1
 	lda PF2A,X
-	sta PF2
+	sta PlayFieldLineBuffer2 ;PF2
 	inx
 	stx PlayFieldYIndex
-SkipLine
+EndPlayfieldLine
 	dec PlayFieldLineSkip
 
 

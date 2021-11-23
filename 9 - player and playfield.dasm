@@ -131,11 +131,9 @@ VBlankStart
 VBlankLogic
 	ldx #0
 	stx PlayFieldYIndex
-	sta SpriteSliceToDraw
-
+	stx SpriteSliceToDraw
 	lda ScanlineCount
 	sta ScanlineCounter
-
 
 CheckMoveUp
 	lda InputUp
@@ -177,15 +175,12 @@ SetHorizontalMovement
 	stx HMP0	
 
 VBlankEnd
-	lda ScanlineCount
-	sta ScanlineCounter
 	;Check the timer
 	lda INTIM
 	;If its not zero loop
 	bne VBlankEnd
 	;Disable VBlank
 	lda #0
-	sta SpriteSliceToDraw
 	sta VBLANK
 	;Wait until the electron gun is back at origin
 	sta WSYNC
@@ -207,19 +202,8 @@ DrawAndClearPlayerBuffer
 	sta PlayerSpriteBuffer
 	;Now we have a whole glorious scanline worth of CPU to do whatever we want for the next line!
 
-DrawPlayfieldBuffers
-	;Write the playfield buffers out to the playfield registers
-	;This seems like a LOT of cycles to have to sacrifice every HBlank - 18 I reckon
-	lda PlayFieldColorBuffer
-	sta COLUPF
-	lda PlayFieldLineBuffer0
-	sta PF0
-	lda PlayFieldLineBuffer1
-	sta PF1
-	lda PlayFieldLineBuffer2
-	sta PF2
 
-DrawScanLine
+
 
 ;Our deferred playfield renderer
 ;We are using a 20x20 playfield to make things easier
@@ -232,6 +216,20 @@ DrawScanLine
 BufferPlayfieldLine
 	ldx PlayFieldLineSkip
 	bne EndPlayfieldLine
+
+DrawPlayfieldBuffers
+	;Write the playfield buffers out to the playfield registers
+	;This seems like a LOT of cycles to have to sacrifice every HBlank - 18 I reckon
+	lda PlayFieldColorBuffer
+	sta COLUPF
+	lda PlayFieldLineBuffer0
+	sta PF0
+	lda PlayFieldLineBuffer1
+	sta PF1
+	lda PlayFieldLineBuffer2
+	sta PF2
+
+
 	ldx #10
 	stx PlayFieldLineSkip
 	ldx PlayFieldYIndex

@@ -44,7 +44,7 @@ Start
 	sta OverscanTimer
 	lda #0
 	sta PlayFieldYIndex
-	lda #10
+	lda #0
 	sta PlayFieldLineSkip
 
 ;Tell the TV we're starting a new frame
@@ -100,7 +100,6 @@ HBlank
 DrawScanLine
 	;Do overscan stuff here
 	ldx PlayFieldLineSkip
-	dex
 	bne SkipLine
 	ldx #10
 	stx PlayFieldLineSkip
